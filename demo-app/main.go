@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -8,16 +9,17 @@ import (
 	"os"
 	"strconv"
 	"time"
-	"context"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"go.opentelemetry.io/otel"
-    	"go.opentelemetry.io/otel/sdk/trace"
-    	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-    	"go.opentelemetry.io/otel/sdk/resource"
-    	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
 var (
@@ -43,11 +45,21 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	prometheus.MustRegister(reqTotal, reqDur)
 
+	// ---- OpenTelemetry Tracing -> Tempo (OTLP HTTP) ----
+	tp, err := initTracerProvider()
+	if err != nil {
+		log.Fatalf("init tracer provider failed: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tp.Shutdown(ctx)
+	}()
+
 	port := getenv("PORT", "8080")
 
 	mux := http.NewServeMux()
 
-	// App endpoints
 	mux.HandleFunc("/", instrument("root", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("INFO route=/ method=%s msg=ok", r.Method)
 		w.WriteHeader(http.StatusOK)
@@ -60,7 +72,6 @@ func main() {
 	}))
 
 	mux.HandleFunc("/slow", instrument("slow", func(w http.ResponseWriter, r *http.Request) {
-		// delay 100ms - 1500ms
 		delay := time.Duration(100+rand.Intn(1400)) * time.Millisecond
 		time.Sleep(delay)
 		log.Printf("INFO route=/slow method=%s delay_ms=%d", r.Method, delay.Milliseconds())
@@ -68,7 +79,6 @@ func main() {
 		fmt.Fprintf(w, "slow ok (%d ms)\n", delay.Milliseconds())
 	}))
 
-	// Prometheus metrics
 	mux.Handle("/metrics", promhttp.Handler())
 
 	srv := &http.Server{
@@ -81,16 +91,67 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
+func initTracerProvider() (*sdktrace.TracerProvider, error) {
+	ctx := context.Background()
+
+	// In docker network, Tempo OTLP HTTP endpoint is tempo:4318
+	exporter, err := otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpoint("tempo:4318"),
+		otlptracehttp.WithInsecure(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceName("demo-app"),
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithResource(res),
+		sdktrace.WithBatcher(exporter),
+	)
+
+	otel.SetTracerProvider(tp)
+	return tp, nil
+}
+
 func instrument(route string, next http.HandlerFunc) http.HandlerFunc {
+	tracer := otel.Tracer("demo-app")
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rr := &respRecorder{ResponseWriter: w, status: 200}
 
-		next(rr, r)
+		// span name contoh: "GET root"
+		ctx, span := tracer.Start(r.Context(), r.Method+" "+route)
+		span.SetAttributes(
+			attribute.String("http.method", r.Method),
+			attribute.String("http.route", route),
+			attribute.String("http.target", r.URL.Path),
+		)
+
+		next(rr, r.WithContext(ctx))
 
 		elapsed := time.Since(start).Seconds()
+
+		// metrics
 		reqDur.WithLabelValues(r.Method, route).Observe(elapsed)
 		reqTotal.WithLabelValues(r.Method, route, strconv.Itoa(rr.status)).Inc()
+
+		// span status
+		span.SetAttributes(attribute.Int("http.status_code", rr.status))
+		if rr.status >= 500 {
+			span.SetStatus(codes.Error, "server error")
+		} else {
+			span.SetStatus(codes.Ok, "ok")
+		}
+		span.End()
 	}
 }
 
