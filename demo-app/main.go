@@ -8,9 +8,16 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"context"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"go.opentelemetry.io/otel"
+    	"go.opentelemetry.io/otel/sdk/trace"
+    	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+    	"go.opentelemetry.io/otel/sdk/resource"
+    	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
 var (
