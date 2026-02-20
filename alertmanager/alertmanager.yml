@@ -1,0 +1,30 @@
+global:
+  resolve_timeout: 5m
+
+  # Gmail SMTP Configuration
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'ermawanbanyubiru@gmail.com'
+  smtp_auth_username: 'ermawanbanyubiru@gmail.com'
+  smtp_auth_password: 'isoj ppxj xkmi phaa'  # You can get it from https://myaccount.google.com/apppasswords
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 30m
+  receiver: 'send-to-both'
+
+receivers:
+  - name: 'send-to-both'
+    email_configs:
+      - to: 'ermawan.banyubiru@ntxsolution.com'
+        send_resolved: true
+          # - to: 'hafidz.wibowo@ntxsolution.com'
+          #send_resolved: true
+          #- to: 'rudiyanto@ntxsolution.com'
+          # send_resolved: true
+
+    telegram_configs:
+      - bot_token: '8511722756:AAGYteix-kPaA62VIXJV9VSzqKv6siQDMF4'
+        chat_id: 880832534
+        send_resolved: true
