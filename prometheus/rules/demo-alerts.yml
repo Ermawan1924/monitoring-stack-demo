@@ -1,0 +1,29 @@
+groups:
+  - name: demo.rules
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Target down ({{ $labels.job }})"
+          description: "Instance {{ $labels.instance }} job={{ $labels.job }} is down"
+
+      - alert: HighCPUHost
+        expr: 100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance))
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU on host ({{ $labels.instance }})"
+          description: "CPU > 80% for 3m"
+
+      - alert: DemoAppHigh5xxRate
+        expr: (sum(rate(http_requests_total{status=~"5.."}[2m])) / sum(rate(http_requests_total[2m]))) * 100 > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Demo app 5xx rate high"
+          description: "5xx rate > 5% (last 2m)"
