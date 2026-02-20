@@ -1,0 +1,32 @@
+global:
+  resolve_timeout: 5m
+
+  # Gmail SMTP Configuration
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'your email address'  #
+  smtp_auth_username: 'your email address'  #
+  smtp_auth_password: '<token from email>'  # You can get it from https://myaccount.google.com/apppasswords
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 30m
+  receiver: 'send-to-both'
+
+receivers:
+  - name: 'send-to-both'
+    email_configs:
+      - to: 'your email address 1'  #
+        send_resolved: true
+      - to: 'your email address 2'
+        send_resolved: true
+      - to: 'your email address 3'
+        send_resolved: true
+      - to: 'your email address 4'
+        send_resolved: true
+
+    telegram_configs:
+      - bot_token: '<token from telegram>'  # You can get it from @BotFather
+        chat_id: token from telegram  # You can get it from @Get My Chat ID Bot
+        send_resolved: true
